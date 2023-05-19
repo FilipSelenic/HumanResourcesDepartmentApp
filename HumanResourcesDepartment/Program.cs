@@ -7,6 +7,7 @@ using HumanResourcesDepartment.Models;
 using HumanResourcesDepartment.Models.DTO;
 using HumanResourcesDepartment.Repository;
 using HumanResourcesDepartment.Repository.Interfaces;
+using HumanResourcesDepartment.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
@@ -75,10 +76,10 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddScoped<IEmployeesRepository, EmployeesRepository>();
+builder.Services.AddScoped<AuthService>();
 
 builder.Services.AddAutoMapper(typeof(MappingConfig));
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
-
 
 var app = builder.Build();
 
@@ -100,46 +101,13 @@ app.UseAuthorization();
 
 
 
-app.MapPost("/login",  (UserManager<ApplicationUser> userManager, IValidator<LoginDTO> _validation, [FromBody] LoginDTO loginDTO) =>
+app.MapPost("/api/login",  ( AuthService authService, [FromBody] LoginDTO loginDTO) =>
 {
-    var validationResult = _validation.ValidateAsync(loginDTO).GetAwaiter().GetResult();
-    if (!validationResult.IsValid)
-    {
-        return Results.BadRequest();
-    }
-
-    var user = userManager.FindByNameAsync(loginDTO.Username).GetAwaiter().GetResult();
-    if (user != null && userManager.CheckPasswordAsync(user, loginDTO.Password).GetAwaiter().GetResult())
-    {
-
-        var authClaims = new List<Claim>
-                {
-                    new Claim(ClaimTypes.Name, user.UserName),
-                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                };
-
-        var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["Key"]));
-
-        var token = new JwtSecurityToken(
-            issuer: Configuration["Issuer"],
-            audience: Configuration["Audience"],
-            expires: DateTime.Now.AddHours(2),      // token valid for 2 hours
-            claims: authClaims,
-            signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256)
-        );
-
-        return Results.Ok(new TokenDTO()
-        {
-            Username = user.UserName,
-            Token = new JwtSecurityTokenHandler().WriteToken(token),
-            Expiration = token.ValidTo
-        });
-    }
-    return Results.Unauthorized();
-});
+    return authService.LoginUser(loginDTO);
+}).Accepts<LoginDTO>("application/json").Produces(200).Produces(400).Produces(401);
 
 
-app.MapPost("/register", (UserManager<ApplicationUser> userManager, IValidator<RegistrationDTO> _validation, [FromBody] RegistrationDTO registrationDTO) => {
+app.MapPost("/api/register", (UserManager<ApplicationUser> userManager, IValidator<RegistrationDTO> _validation, [FromBody] RegistrationDTO registrationDTO) => {
 
     var validationResult = _validation.ValidateAsync(registrationDTO).GetAwaiter().GetResult();
     if (!validationResult.IsValid)
@@ -166,7 +134,7 @@ app.MapPost("/register", (UserManager<ApplicationUser> userManager, IValidator<R
     }
 
     return Results.Ok();
-});
+}).Accepts<RegistrationDTO>("application/json").Produces(200).Produces(400);
 
 
 
@@ -182,6 +150,7 @@ app.MapGet("/api/employees", (IMapper _mapper, IEmployeesRepository employeeRepo
     return Results.Ok(response);
 }).WithName("GetEmployees").Produces<APIResponse>(200);
 
+
 app.MapGet("/api/employees/{id:int}", (IMapper _mapper, IEmployeesRepository employeeRepository, int id) =>
 {
     APIResponse response = new() { IsSuccess = false, StatusCode = HttpStatusCode.NotFound };
@@ -195,7 +164,8 @@ app.MapGet("/api/employees/{id:int}", (IMapper _mapper, IEmployeesRepository emp
     response.IsSuccess = true;
     response.StatusCode = HttpStatusCode.OK;
     return Results.Ok(response);
-}).WithName("GetEmployee").Produces<APIResponse>(200).Produces(404);
+}).WithName("GetEmployee").Produces<APIResponse>(200).Produces<APIResponse>(404);
+
 
 app.MapPost("/api/employees",  (IMapper _mapper, IValidator< EmployeeCreateDTO> _validation, IEmployeesRepository employeeRepository, [FromBody] EmployeeCreateDTO employeeCreateDTO) =>
 {
@@ -214,7 +184,8 @@ app.MapPost("/api/employees",  (IMapper _mapper, IValidator< EmployeeCreateDTO> 
     response.IsSuccess = true;
     response.StatusCode = HttpStatusCode.Created;
     return Results.Ok(response);
-}).WithName("CreateEmployee").Accepts<EmployeeCreateDTO>("application/json").Produces<APIResponse>(201);
+}).WithName("CreateEmployee").Accepts<EmployeeCreateDTO>("application/json").Produces<APIResponse>(201).RequireAuthorization();
+
 
 app.MapPut("/api/employees", (IMapper _mapper, IValidator<EmployeeUpdateDTO> _validation, IEmployeesRepository employeeRepository, [FromBody] EmployeeUpdateDTO employeeUpdateDTO) =>
 {
@@ -247,7 +218,8 @@ app.MapPut("/api/employees", (IMapper _mapper, IValidator<EmployeeUpdateDTO> _va
     response.IsSuccess = true;
     response.StatusCode = HttpStatusCode.OK; 
     return Results.Ok(response);
-}).Produces<APIResponse>(200).Produces(400).Accepts<EmployeeUpdateDTO>("application/json");
+}).Produces<APIResponse>(200).Produces<APIResponse>(400).Accepts<EmployeeUpdateDTO>("application/json").RequireAuthorization();
+
 
 app.MapDelete("/api/employees/{id:int}", (IEmployeesRepository employeeRepository, int id) =>
 {
@@ -264,7 +236,7 @@ app.MapDelete("/api/employees/{id:int}", (IEmployeesRepository employeeRepositor
     response.IsSuccess = true;
     response.StatusCode = HttpStatusCode.NoContent;
     return Results.Ok(response);
-}).Produces(200).Produces(404);
+}).Produces<APIResponse>(200).Produces<APIResponse>(404).RequireAuthorization();
 
 
 app.Run();
