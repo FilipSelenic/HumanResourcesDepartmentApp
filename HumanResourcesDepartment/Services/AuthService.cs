@@ -16,18 +16,21 @@ namespace HumanResourcesDepartment.Services
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IConfiguration _configuration;
-        private readonly IValidator<LoginDTO> _validation;
-        public AuthService(UserManager<ApplicationUser> userManager, IValidator<LoginDTO> validation, IConfiguration configuration)
+        private readonly IValidator<LoginDTO> _loginValidator;
+        private readonly IValidator<RegistrationDTO> _registrationValidator;
+
+        public AuthService(UserManager<ApplicationUser> userManager, IValidator<RegistrationDTO> registrationValidator, IValidator<LoginDTO> loginValidator, IConfiguration configuration)
         {
             _userManager = userManager;
             _configuration = configuration;
-            _validation = validation;
+            _loginValidator = loginValidator;
+            _registrationValidator = registrationValidator;
         }
 
         public IResult LoginUser(LoginDTO loginDTO)
         {
             // Validacija loginDTO
-            var validationResult = _validation.ValidateAsync(loginDTO).GetAwaiter().GetResult();
+            var validationResult = _loginValidator.ValidateAsync(loginDTO).GetAwaiter().GetResult();
             if (!validationResult.IsValid)
             {
                 return Results.BadRequest();
@@ -62,6 +65,35 @@ namespace HumanResourcesDepartment.Services
             }
 
             return Results.Unauthorized();
+        }
+        public IResult RegisterUser(RegistrationDTO registrationDTO)
+        {
+            var validationResult = _registrationValidator.ValidateAsync(registrationDTO).GetAwaiter().GetResult();
+            if (!validationResult.IsValid)
+            {
+                return Results.BadRequest();
+            }
+
+            var userExists = _userManager.FindByNameAsync(registrationDTO.Username).GetAwaiter().GetResult();
+            if (userExists != null)
+            {
+                return Results.BadRequest("User already exists");
+            }
+
+            ApplicationUser user = new ApplicationUser()
+            {
+                Email = registrationDTO.Email,
+                SecurityStamp = Guid.NewGuid().ToString(),
+                UserName = registrationDTO.Username
+            };
+
+            var result = _userManager.CreateAsync(user, registrationDTO.Password).GetAwaiter().GetResult();
+            if (!result.Succeeded)
+            {
+                return Results.BadRequest("Validation failed! Please check user details and try again.");
+            }
+
+            return Results.Ok();
         }
     }
 }
